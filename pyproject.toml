@@ -1,0 +1,28 @@
+[project]
+name = "jobber"
+version = "0.0.1"
+description = "Minimal build/push/submit helpers for Docker/ECR/SageMaker."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "boto3",
+    "sagemaker",
+    "pyyaml",
+]
+optional-dependencies.dev = [
+    "pytest",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["jobber"]
+include = ["jobber/templates/*.Dockerfile"]
+
+[project.scripts]
+jobber = "jobber.cli:main"
