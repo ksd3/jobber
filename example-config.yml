@@ -1,0 +1,55 @@
+build:
+  image: [your-image-name] (for example, `my-image`)
+  tag: [tag-you-want-to-give-your-image] (for example, `latest`)
+  template: [a-docker-template] (for example, `.` (the pwd))
+  context: [directory-that-has-context]
+
+push:
+  image: [local-docker-image-name] (something like 'my-image')
+  repo: [ecr-repo/image-name] (something like `my-repo`) (ECR calls images hosted there 'repos')
+  tag: [image-tag] (something like `latest`)
+  region: [aws-region] (something like `us-east-1`)
+
+submit:
+  image-uri: [aws-account-id].dkr.ecr.[aws-region].amazonaws.com/[image-name]:[image-tag]
+  role-arn: arn:aws:iam::[aws-account-id]:role/[aws-role-with-access-to-sagemaker]
+  bucket: [globally-unique-bucket-name]
+  prefix: [some-prefix-that-helps-you-identify-the-bucket]
+  region: [aws-region]
+  entry-point: [filename-of-your-script's-entry-point]
+  source-dir: [directory-that-you-zip-up-to-push-to-sagemaker]
+  instance-type: [sagemaker-instance-name] (see here: https://aws.amazon.com/ec2/instance-types/)
+  instance-count: [instance-counts-that-you-have-access-to]
+  params:
+    param-1: "value-1"
+    param-2: "value-2"
+
+
+# For example:
+
+build:
+  image: my-image
+  tag: latest
+  template: gpu-cu121
+  context: .
+
+push:
+  image: my-image
+  repo: my-repo
+  tag: latest
+  region: us-east-1
+
+submit:
+  image-uri: 123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo:latest
+  role-arn: arn:aws:iam::123456789012:role/SageMakerExecutionRole
+  bucket: my-unique-bucket-name
+  prefix: my-prefix
+  region: us-east-1
+  entry-point: train.py
+  source-dir: code-bundle
+  instance-type: ml.m5.xlarge
+  instance-count: 1
+  params:
+    epochs: "5"
+    batch-size: "64"
+    lr: "0.001"
