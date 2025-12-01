@@ -20,6 +20,24 @@ Jobber is a small helper to:
 - Python 3.10+ with `pip install -e .` (or `uv pip install -e .`).
 - SageMaker execution role ARN with S3/List/Get/Put and ECR pull permissions.
 - For ECR push: IAM perms to create repo/login/push.
+- (Optional but recommended) uv installed from https://github.com/astral-sh/uv
+
+## How to install
+
+Using uv (recommended):
+```bash
+uv pip install -e .
+```
+
+Using pip (inside your venv):
+```bash
+pip install -e .
+```
+
+## Quick sanity check
+```bash
+jobber --help
+```
 
 ## Quickstart (no config)
 ```bash
@@ -32,7 +50,7 @@ jobber push --image my-training --repo my-training --region us-east-1
 # 3) Submit a SageMaker job
 jobber submit \
   --image-uri <acct>.dkr.ecr.us-east-1.amazonaws.com/my-training:latest \
-  --role-arn arn:aws:iam::<acct>:role/SageMakerExecutionRole \
+  --role-arn arn:aws:iam::<acct>:role/<sagemakerrole> \
   --bucket your-bucket --prefix custom-run \
   --entry-point train.py --source-dir code-bundle \
   --param epochs=5 --param batch-size=64 \
