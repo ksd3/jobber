@@ -12,6 +12,15 @@ def test_placeholder_upload(monkeypatch):
     calls = {}
 
     class FakeS3:
+        def head_bucket(self, Bucket):
+            calls["head"] = Bucket
+            from botocore.exceptions import ClientError
+
+            raise ClientError({"Error": {"Code": "NoSuchBucket"}}, "HeadBucket")
+
+        def create_bucket(self, Bucket, CreateBucketConfiguration=None):
+            calls["created"] = (Bucket, CreateBucketConfiguration)
+
         def list_objects_v2(self, Bucket, Prefix, MaxKeys):
             calls["listed"] = (Bucket, Prefix)
             return {"KeyCount": 0}
@@ -26,16 +35,18 @@ def test_placeholder_upload(monkeypatch):
 
     monkeypatch.setattr(sm_submit.boto3, "Session", lambda region_name=None: FakeSession())
 
-    class DummyEstimator:
-        latest_training_job = type("J", (), {"name": "job"})()
+    class DummyTrainer:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            calls["trainer_kwargs"] = kwargs
+            self._latest_training_job = types.SimpleNamespace(training_job_name="job")
 
-        def __init__(self, *a, **k):
+        def train(self, *a, **k):
             pass
 
-        def fit(self, *a, **k):
-            pass
-
-    monkeypatch.setattr(sm_submit, "Estimator", DummyEstimator)
+    monkeypatch.setattr(sm_submit, "ModelTrainer", DummyTrainer)
+    monkeypatch.setattr(sm_submit, "Session", lambda boto_session=None: types.SimpleNamespace(boto_session=boto_session))
+    monkeypatch.setattr(sm_submit, "_stream_training_logs", lambda job_name, session, poll=5: calls.setdefault("stream", job_name))
     job = sm_submit.submit_job(
         image_uri="uri",
         role_arn="arn",
@@ -46,6 +57,15 @@ def test_placeholder_upload(monkeypatch):
         source_dir=".",
         hyperparameters={},
         instance_type="ml.m5.xlarge",
+        tail_logs=True,
         ensure_data=True,
+        use_spot=True,
+        max_wait_seconds=123,
     )
     assert calls["put"][1].endswith("placeholder.txt")
+    assert calls["created"][0] == "b"
+    assert calls["stream"] == "job"
+    assert isinstance(calls["trainer_kwargs"]["compute"], object)
+    assert calls["trainer_kwargs"]["compute"].enable_managed_spot_training is True
+    assert calls["trainer_kwargs"]["stopping_condition"].max_wait_time_in_seconds == 123
+    assert job == "job"

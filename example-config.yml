@@ -1,25 +1,27 @@
 build:
-  image: [your-image-name] (for example, `my-image`)
-  tag: [tag-you-want-to-give-your-image] (for example, `latest`)
+  image: [your-image-name] (for example, `my-image`)  # MUST MATCH push.image
+  tag: [tag-you-want-to-give-your-image] (for example, `latest`)  # MUST MATCH push.tag AND submit.image-uri tag
   template: [a-docker-template] (for example, `.` (the pwd))
   context: [directory-that-has-context]
 
 push:
-  image: [local-docker-image-name] (something like 'my-image')
-  repo: [ecr-repo/image-name] (something like `my-repo`) (ECR calls images hosted there 'repos')
-  tag: [image-tag] (something like `latest`)
-  region: [aws-region] (something like `us-east-1`)
+  image: [local-docker-image-name] (something like 'my-image')  # MUST MATCH build.image
+  repo: [ecr-repo/image-name] (something like `my-repo`) (ECR calls images hosted there 'repos')  # MUST MATCH submit.image-uri repo
+  tag: [image-tag] (something like `latest`)  # MUST MATCH build.tag AND submit.image-uri tag
+  region: [aws-region] (something like `us-east-1`)  # MUST MATCH submit.region
 
 submit:
-  image-uri: [aws-account-id].dkr.ecr.[aws-region].amazonaws.com/[image-name]:[image-tag]
+  image-uri: [aws-account-id].dkr.ecr.[aws-region].amazonaws.com/[image-name]:[image-tag]  # [image-name]=push.repo, [image-tag]=push.tag
   role-arn: arn:aws:iam::[aws-account-id]:role/[aws-role-with-access-to-sagemaker]
   bucket: [globally-unique-bucket-name]
   prefix: [some-prefix-that-helps-you-identify-the-bucket]
-  region: [aws-region]
+  region: [aws-region]  # MUST MATCH push.region
   entry-point: [filename-of-your-script's-entry-point]
   source-dir: [directory-that-you-zip-up-to-push-to-sagemaker]
   instance-type: [sagemaker-instance-name] (see here: https://aws.amazon.com/ec2/instance-types/)
   instance-count: [instance-counts-that-you-have-access-to]
+  use-spot: false
+  max-wait-seconds: [optional-wait-seconds-for-spot] (for example, 3600)
   params:
     param-1: "value-1"
     param-2: "value-2"
@@ -49,6 +51,8 @@ submit:
   source-dir: code-bundle
   instance-type: ml.m5.xlarge
   instance-count: 1
+  use-spot: false
+  max-wait-seconds: 3600
   params:
     epochs: "5"
     batch-size: "64"

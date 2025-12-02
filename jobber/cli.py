@@ -16,12 +16,22 @@ import yaml
 
 
 def cmd_build(args: argparse.Namespace) -> None:
+    context = args.context or "."
+    tag = args.tag or "latest"
+    dockerfile = args.dockerfile
+    _ensure_default_dockerignore(context)
+    if not args.image:
+        print("Image name is required (e.g., --image my-training)", file=sys.stderr)
+        sys.exit(1)
     if getattr(args, "template", None):
         tmpl = docker_templates.get_template(args.template)
-        Path("Dockerfile").write_text(tmpl.content)
-        print(f"Wrote Dockerfile from template: {tmpl.name}")
-    image = DockerImage(name=args.image, tag=args.tag)
-    build_image(image, context=args.context, dockerfile=args.dockerfile)
+        df_path = Path(context) / "Dockerfile"
+        df_path.parent.mkdir(parents=True, exist_ok=True)
+        df_path.write_text(tmpl.content)
+        dockerfile = str(df_path)
+        print(f"Wrote Dockerfile from template: {tmpl.name} -> {df_path}")
+    image = DockerImage(name=args.image, tag=tag)
+    build_image(image, context=context, dockerfile=dockerfile)
     print(f"Built {image.ref}")
 
 
@@ -116,9 +126,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_build = sub.add_parser("build", help="Build a Docker image.")
     p_build.add_argument("--config", help="Path to config file (yaml/json) for defaults.")
     p_build.add_argument("--image", required=False, help="Local image name (e.g., myimg).")
-    p_build.add_argument("--tag", default="latest", help="Image tag (default: latest).")
+    p_build.add_argument("--tag", help="Image tag (default: latest).")
     p_build.add_argument("--dockerfile", help="Path to Dockerfile (default: ./Dockerfile).")
-    p_build.add_argument("--context", default=".", help="Build context (default: current dir).")
+    p_build.add_argument("--context", help="Build context (default: current dir).")
     p_build.add_argument(
         "--template",
         choices=[t.name for t in docker_templates.list_templates()],
@@ -166,6 +176,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_submit.add_argument("--job-name", help="Optional training job name.")
     p_submit.add_argument("--param", action="append", default=[], metavar="KEY=VALUE", help="Hyperparameter (repeat).")
     p_submit.add_argument("--tail-logs", action="store_true", help="Stream CloudWatch logs.")
+    p_submit.add_argument("--use-spot", action="store_true", help="Use SageMaker managed spot training.")
+    p_submit.add_argument(
+        "--max-wait-seconds",
+        type=int,
+        help="Max wait time for managed spot training (SageMaker StoppingCondition.MaxWaitTimeInSeconds).",
+    )
     p_submit.add_argument(
         "--no-ensure-data",
         action="store_false",
@@ -182,6 +198,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync.set_defaults(func=cmd_sync)
 
     return parser
+
+
+def _ensure_default_dockerignore(context: str) -> None:
+    """
+    Create a minimal .dockerignore in the build context if one is missing.
+    Keeps build contexts lean to avoid large/slow uploads.
+    """
+    path = Path(context) / ".dockerignore"
+    if path.exists():
+        return
+    defaults = [
+        ".git",
+        "__pycache__",
+        ".pytest_cache",
+        ".venv",
+        "*.pyc",
+        "*.pyo",
+        "*.swp",
+        "*.tmp",
+        "sagemaker-python-sdk",
+        "tests",
+    ]
+    path.write_text("\n".join(defaults) + "\n")
 
 
 def cmd_sync(args: argparse.Namespace) -> None:

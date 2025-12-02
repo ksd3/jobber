@@ -1,6 +1,6 @@
 [project]
 name = "jobber"
-version = "0.0.1"
+version = "0.0.2"
 description = "Minimal build/push/submit helpers for Docker/ECR/SageMaker."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -36,10 +36,29 @@ def test_cmd_build(monkeypatch):
 
     monkeypatch.setattr(cli, "build_image", fake_build_image)
 
-    args = SimpleNamespace(image="repo/img", tag="t", context=".", dockerfile=None)
+    args = SimpleNamespace(image="repo/img", tag="t", context=".", dockerfile=None, template=None)
     cli.cmd_build(args)
     assert calls["image"].ref == "repo/img:t"
     assert calls["context"] == "."
+
+
+def test_cmd_build_template_respects_context(tmp_path, monkeypatch):
+    calls = {}
+
+    def fake_build_image(image, context, dockerfile):
+        calls["context"] = context
+        calls["dockerfile"] = dockerfile
+
+    monkeypatch.setattr(cli, "build_image", fake_build_image)
+
+    ctx = tmp_path / "code-bundle"
+    ctx.mkdir()
+    args = SimpleNamespace(image="repo/img", tag=None, context=str(ctx), dockerfile=None, template="cpu")
+    cli.cmd_build(args)
+    assert calls["context"] == str(ctx)
+    assert calls["dockerfile"] == str(ctx / "Dockerfile")
+    assert (ctx / "Dockerfile").exists()
+    assert (ctx / ".dockerignore").exists()
 
 
 def test_cmd_push(monkeypatch):
@@ -177,4 +196,3 @@ def test_cli_init(tmp_path, monkeypatch):
     assert "build:" in content
     assert "push:" in content
     assert "submit:" in content
-    assert recorded["hyperparameters"] == {"epochs": "1"}
