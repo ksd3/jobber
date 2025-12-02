@@ -1,6 +1,6 @@
 # Jobber Documentation
 
-Jobber is a small helper to:
+Jobber is a helper to:
 - Build Docker images (optionally from templates)
 - Push images to ECR
 - Submit SageMaker training jobs (with config-driven defaults)
