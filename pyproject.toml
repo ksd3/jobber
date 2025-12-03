@@ -1,13 +1,14 @@
 [project]
 name = "jobber"
-version = "0.0.2"
-description = "Minimal build/push/submit helpers for Docker/ECR/SageMaker."
+version = "0.0.3"
+description = "Minimal build/push/submit helpers for Docker, AWS S3/ECR/SageMaker, and GCP GCS/GCR/Vertex AI"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "boto3",
     "sagemaker",
     "pyyaml",
+    "google-cloud-aiplatform",
 ]
 optional-dependencies.dev = [
     "pytest",

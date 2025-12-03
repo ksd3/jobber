@@ -5,6 +5,8 @@ Jobber is a helper to:
 - Push images to ECR
 - Submit SageMaker training jobs (with config-driven defaults)
 - Sync local data to S3 and seed empty data prefixes
+- Push images to GCP Artifact Registry
+- Sync data to GCS and submit Vertex AI Custom Jobs (provider: gcp)
 
 ## Contents
 - `configuration.md`: Config file format, merging, hyperparameters.
@@ -55,6 +57,17 @@ jobber submit \
   --entry-point train.py --source-dir code-bundle \
   --param epochs=5 --param batch-size=64 \
   --tail-logs
+
+# 3b) Submit a Vertex AI job (GCP)
+jobber submit \
+  --provider gcp \
+  --project my-gcp-project \
+  --region us-central1 \
+  --image-uri us-central1-docker.pkg.dev/my-gcp-project/my-repo/my-training:latest \
+  --gcs-bucket your-gcs-bucket --gcs-prefix custom-run \
+  --entry-point train.py --source-dir code-bundle \
+  --param epochs=5 --param batch-size=64 \
+  --machine-type n1-standard-4
 ```
 
 ## Quickstart (with config)

@@ -4,6 +4,14 @@ Minimal SageMaker submit helper for jobber (custom image).
 
 import time
 from typing import Dict, Optional
+import warnings
+
+# Suppress upstream DeprecationWarning until sagemaker exposes a stable non-shim import.
+warnings.filterwarnings(
+    "ignore",
+    message=".*sagemaker.train.configs has been moved to sagemaker.core.training.configs.*",
+    category=DeprecationWarning,
+)
 
 import boto3
 from botocore.exceptions import ClientError
@@ -42,6 +50,15 @@ def submit_job(
         _ensure_placeholder_data(boto_session, bucket, prefix)
 
     source_code = SourceCode(source_dir=source_dir, entry_script=entry_point) if source_dir else None
+    stopping = None
+    if max_wait_seconds is not None:
+        if use_spot:
+            stopping = StoppingCondition(
+                max_runtime_in_seconds=max_wait_seconds, max_wait_time_in_seconds=max_wait_seconds
+            )
+        else:
+            stopping = StoppingCondition(max_runtime_in_seconds=max_wait_seconds)
+
     trainer = ModelTrainer(
         sagemaker_session=session,
         role=role_arn,
@@ -52,9 +69,7 @@ def submit_job(
             instance_count=instance_count,
             enable_managed_spot_training=use_spot,
         ),
-        stopping_condition=StoppingCondition(max_wait_time_in_seconds=max_wait_seconds)
-        if max_wait_seconds is not None
-        else None,
+        stopping_condition=stopping,
         output_data_config=OutputDataConfig(s3_output_path=f"s3://{bucket}/{prefix}/outputs"),
         base_job_name=job_name or "jobber",
         hyperparameters=hyperparameters or {},

@@ -4,6 +4,8 @@ You can keep defaults in a YAML/JSON config and avoid long CLI flags. Keys are r
 
 ## Example
 ```yaml
+provider: aws  # or gcp
+
 build:
   image: my-training
   tag: latest
@@ -26,6 +28,24 @@ submit:
   source-dir: code-bundle
   instance-type: ml.m5.xlarge
   instance-count: 1
+  params:
+    epochs: "5"
+    batch-size: "64"
+
+# GCP submit fields (provider: gcp)
+submit:
+  image-uri: us-central1-docker.pkg.dev/my-project/my-repo/my-training:latest
+  project: my-project
+  gcs-bucket: your-gcs-bucket
+  gcs-prefix: custom-run
+  region: us-central1
+  entry-point: train.py
+  source-dir: code-bundle
+  machine-type: n1-standard-4
+  accelerator-type: NVIDIA_TESLA_T4
+  accelerator-count: 1
+  replica-count: 1
+  service-account: my-sa@my-project.iam.gserviceaccount.com
   params:
     epochs: "5"
     batch-size: "64"

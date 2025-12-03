@@ -12,6 +12,9 @@ def test_placeholder_upload(monkeypatch):
     calls = {}
 
     class FakeS3:
+        def __init__(self):
+            self.meta = types.SimpleNamespace(region_name=None)
+
         def head_bucket(self, Bucket):
             calls["head"] = Bucket
             from botocore.exceptions import ClientError
@@ -68,4 +71,5 @@ def test_placeholder_upload(monkeypatch):
     assert isinstance(calls["trainer_kwargs"]["compute"], object)
     assert calls["trainer_kwargs"]["compute"].enable_managed_spot_training is True
     assert calls["trainer_kwargs"]["stopping_condition"].max_wait_time_in_seconds == 123
+    assert calls["trainer_kwargs"]["stopping_condition"].max_runtime_in_seconds == 123
     assert job == "job"

@@ -67,3 +67,13 @@ def normalize_keys(obj: Any) -> Any:
     if isinstance(obj, list):
         return [normalize_keys(x) for x in obj]
     return obj
+
+
+def resolve_provider(conf: Dict[str, Any], default: str = "aws") -> str:
+    """
+    Extract a normalized provider string. Defaults to 'aws' unless overridden.
+    """
+    provider = (conf.get("provider") or default).lower()
+    if provider not in {"aws", "gcp"}:
+        raise ValueError(f"Unsupported provider: {provider}")
+    return provider

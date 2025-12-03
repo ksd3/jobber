@@ -1,4 +1,5 @@
 from pathlib import Path
+import pytest
 import jobber.config as cfg
 
 
@@ -25,3 +26,24 @@ def test_normalize_keys():
     assert norm["image_uri"] == "uri"
     assert norm["nested"]["role_arn"] == "arn"
     assert norm["list"][0]["entry_point"] == "train.py"
+
+
+def test_normalize_keys_gcp_fields():
+    data = {
+        "provider": "gcp",
+        "push": {"project-id": "proj", "artifact-repo": "repo"},
+        "submit": {"gcs-bucket": "b", "gcs-prefix": "p"},
+    }
+    norm = cfg.normalize_keys(data)
+    assert norm["provider"] == "gcp"
+    assert norm["push"]["project_id"] == "proj"
+    assert norm["push"]["artifact_repo"] == "repo"
+    assert norm["submit"]["gcs_bucket"] == "b"
+    assert norm["submit"]["gcs_prefix"] == "p"
+
+
+def test_resolve_provider():
+    assert cfg.resolve_provider({"provider": "gcp"}) == "gcp"
+    assert cfg.resolve_provider({}) == "aws"
+    with pytest.raises(ValueError):
+        cfg.resolve_provider({"provider": "azure"})

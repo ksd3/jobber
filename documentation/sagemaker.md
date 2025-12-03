@@ -11,6 +11,7 @@
 
 ## Hyperparameters
 - Config `params` and CLI `--param` become CLI args to your script. Dashes in config keys are normalized to underscores; make your argparse accept both if needed.
+  - For GCP/Vertex, the same pattern applies: `--key value` flags are passed to your entry script.
 
 ## Distributed/Instance types
 - Instance types/count come from config/CLI. Multi-node/gpu require DDP setup in your code. Images use empty ENTRYPOINT to allow script mode.

@@ -30,6 +30,8 @@ Add `--gpus all` if you have GPU and NVIDIA Container Toolkit installed.
 ## Entrypoint
 Images leave `ENTRYPOINT`/`CMD` empty so SageMaker can override with `entry_point` from Estimator/submit. If you bake code into the image and don’t upload `source_dir`, set your own entrypoint accordingly.
 
+For Vertex AI, `entry_point` maps to `python entry_point` with hyperparameters as `--key value` args (same as SageMaker). Ensure your script accepts option-style args.
+
 ## Large wheels
 CUDA images pull large torch/vision wheels; network issues can cause hash/SSL errors. Retry builds if transient. For CPU-only, use the `cpu` template.
 

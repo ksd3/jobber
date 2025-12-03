@@ -7,11 +7,10 @@ import sys
 from pathlib import Path
 
 from jobber.docker_utils import DockerImage, build_image, push_image, tag_image
-from jobber.ecr_utils import ECRInfo, ensure_repo, ecr_login
-from jobber.sm_submit import submit_job
 from jobber import docker_templates
 from jobber import config as cfg
-from jobber import s3_utils
+from jobber import gcp_storage
+from jobber.gcp_artifact import ArtifactRef, configure_docker as gcp_auth, ensure_repo as gcp_ensure_repo, push_image as gcp_push
 import yaml
 
 
@@ -36,20 +35,41 @@ def cmd_build(args: argparse.Namespace) -> None:
 
 
 def cmd_push(args: argparse.Namespace) -> None:
-    import boto3
-
-    session = boto3.Session(region_name=args.region) if args.region else boto3.Session()
-    if not session.region_name:
-        print("Region not set; pass --region or configure AWS CLI.", file=sys.stderr)
+    provider = cfg.resolve_provider({"provider": args.provider})
+    if not args.image:
+        print("Image name is required (e.g., --image my-training)", file=sys.stderr)
         sys.exit(1)
-    account_id = session.client("sts").get_caller_identity()["Account"]
-    info = ECRInfo(account_id=account_id, region=session.region_name, repo_name=args.repo, image_tag=args.tag)
-    ensure_repo(session.client("ecr"), args.repo)
-    ecr_login(info)
-    src = DockerImage(name=args.image, tag=args.tag)
-    tag_image(src, info.image_uri)
-    push_image(info.image_uri)
-    print(f"Pushed {info.image_uri}")
+
+    if provider == "aws":
+        import boto3
+        from jobber.ecr_utils import ECRInfo, ensure_repo, ecr_login
+
+        session = boto3.Session(region_name=args.region) if args.region else boto3.Session()
+        if not session.region_name:
+            print("Region not set; pass --region or configure AWS CLI.", file=sys.stderr)
+            sys.exit(1)
+        account_id = session.client("sts").get_caller_identity()["Account"]
+        info = ECRInfo(account_id=account_id, region=session.region_name, repo_name=args.repo, image_tag=args.tag)
+        ensure_repo(session.client("ecr"), args.repo)
+        ecr_login(info)
+        src = DockerImage(name=args.image, tag=args.tag)
+        tag_image(src, info.image_uri)
+        push_image(info.image_uri)
+        print(f"Pushed {info.image_uri}")
+        return
+
+    # GCP path
+    if not args.project or not args.artifact_repo:
+        print("GCP push requires --project and --artifact-repo", file=sys.stderr)
+        sys.exit(1)
+    if not args.region:
+        print("GCP push requires --region for Artifact Registry", file=sys.stderr)
+        sys.exit(1)
+    ref = ArtifactRef(project=args.project, region=args.region, repo=args.artifact_repo, image=args.repo or args.image, tag=args.tag)
+    gcp_ensure_repo(args.project, args.region, args.artifact_repo)
+    gcp_auth(args.region)
+    gcp_push(DockerImage(name=args.image, tag=args.tag), ref)
+    print(f"Pushed {ref.uri}")
 
 
 def cmd_submit(args: argparse.Namespace) -> None:
@@ -63,6 +83,49 @@ def cmd_submit(args: argparse.Namespace) -> None:
             sys.exit(1)
         k, v = item.split("=", 1)
         extra_hps[k] = v
+    provider = cfg.resolve_provider({"provider": args.provider})
+    if provider == "gcp":
+        try:
+            from jobber import vertex_submit
+        except ModuleNotFoundError as e:
+            missing = getattr(e, "name", "") or str(e)
+            if "google" in missing or "aiplatform" in missing or "vertex_submit" in missing:
+                print(
+                    "google-cloud-aiplatform not installed; install with `pip install google-cloud-aiplatform`.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            raise
+
+        gcs_bucket = args.gcs_bucket or args.bucket
+        gcs_prefix = args.gcs_prefix or args.prefix
+        if not args.project or not args.region or not gcs_bucket or not gcs_prefix:
+            print("GCP submit requires --project, --region, and GCS bucket/prefix (via --gcs-bucket/--gcs-prefix or --bucket/--prefix)", file=sys.stderr)
+            sys.exit(1)
+        job_name = vertex_submit.submit_job(
+            project=args.project,
+            region=args.region,
+            image_uri=args.image_uri,
+            bucket=gcs_bucket,
+            prefix=gcs_prefix,
+            entry_point=args.entry_point,
+            source_dir=str(Path(args.source_dir).resolve()) if args.source_dir else None,
+            args=extra_hps,
+            machine_type=args.machine_type or "n1-standard-4",
+            accelerator_type=args.accelerator_type,
+            accelerator_count=args.accelerator_count,
+            replica_count=args.replica_count or 1,
+            job_name=args.job_name,
+            service_account=args.service_account,
+            network=args.network,
+            subnet=args.subnet,
+            ensure_data=getattr(args, "ensure_data", True),
+            tail_logs=args.tail_logs,
+        )
+        print(f"Submitted Vertex AI job: {job_name}")
+        return
+
+    from jobber.sm_submit import submit_job
 
     job_name = submit_job(
         image_uri=args.image_uri,
@@ -78,6 +141,8 @@ def cmd_submit(args: argparse.Namespace) -> None:
         job_name=args.job_name,
         tail_logs=args.tail_logs,
         ensure_data=getattr(args, "ensure_data", True),
+        use_spot=args.use_spot,
+        max_wait_seconds=args.max_wait_seconds,
     )
     print(f"Submitted training job: {job_name}")
 
@@ -160,15 +225,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_push.add_argument("--repo", required=False, help="ECR repository name.")
     p_push.add_argument("--tag", default="latest", help="Tag (default: latest).")
     p_push.add_argument("--region", help="AWS region (defaults to AWS CLI config).")
+    p_push.add_argument("--provider", choices=["aws", "gcp"], help="Target cloud (default: aws).")
+    p_push.add_argument("--project", help="GCP project (Artifact Registry).")
+    p_push.add_argument("--artifact-repo", dest="artifact_repo", help="GCP Artifact Registry repository name.")
     p_push.set_defaults(func=cmd_push)
 
-    p_submit = sub.add_parser("submit", help="Submit a SageMaker training job.")
+    p_submit = sub.add_parser("submit", help="Submit a training job (SageMaker or Vertex AI).")
     p_submit.add_argument("--config", help="Path to config file (yaml/json) for defaults.")
     p_submit.add_argument("--image-uri", required=False, help="ECR image URI.")
     p_submit.add_argument("--role-arn", required=False, help="SageMaker execution role ARN.")
     p_submit.add_argument("--bucket", required=False, help="S3 bucket for outputs.")
-    p_submit.add_argument("--prefix", default="jobber-run", help="S3 prefix for artifacts.")
-    p_submit.add_argument("--region", help="AWS region (defaults to AWS CLI config).")
+    p_submit.add_argument("--prefix", default="jobber-run", help="S3/GCS prefix for artifacts.")
+    p_submit.add_argument("--region", help="Cloud region (AWS or GCP).")
     p_submit.add_argument("--entry-point", help="Training script filename inside source_dir.")
     p_submit.add_argument("--source-dir", default="code-bundle", help="Directory to upload as source.")
     p_submit.add_argument("--instance-type", default="ml.m5.xlarge")
@@ -188,13 +256,26 @@ def build_parser() -> argparse.ArgumentParser:
         dest="ensure_data",
         help="Disable placeholder upload if the data prefix is empty (defaults to enabled).",
     )
+    p_submit.add_argument("--provider", choices=["aws", "gcp"], help="Target cloud (default: aws).")
+    # GCP-specific
+    p_submit.add_argument("--project", help="GCP project for Vertex AI.")
+    p_submit.add_argument("--gcs-bucket", dest="gcs_bucket", help="GCS bucket for data/outputs.")
+    p_submit.add_argument("--gcs-prefix", dest="gcs_prefix", help="GCS prefix for data/outputs.")
+    p_submit.add_argument("--machine-type", help="Vertex AI machine type (e.g., n1-standard-4).")
+    p_submit.add_argument("--accelerator-type", help="Vertex AI accelerator type (e.g., NVIDIA_TESLA_T4).")
+    p_submit.add_argument("--accelerator-count", type=int, help="Vertex AI accelerator count.")
+    p_submit.add_argument("--replica-count", type=int, help="Vertex AI replica count.")
+    p_submit.add_argument("--service-account", dest="service_account", help="Service account email for Vertex AI job.")
+    p_submit.add_argument("--network", help="VPC network for Vertex AI job.")
+    p_submit.add_argument("--subnet", help="VPC subnet for Vertex AI job.")
     p_submit.set_defaults(ensure_data=True)
     p_submit.set_defaults(func=cmd_submit)
 
-    p_sync = sub.add_parser("sync-data", help="Sync a local folder to S3.")
+    p_sync = sub.add_parser("sync-data", help="Sync a local folder to object storage.")
     p_sync.add_argument("--src", required=True, help="Local folder path.")
-    p_sync.add_argument("--dest", required=True, help="Destination S3 URI (e.g., s3://bucket/prefix/data).")
-    p_sync.add_argument("--region", help="AWS region.")
+    p_sync.add_argument("--dest", required=True, help="Destination URI (s3://... or gs://...).")
+    p_sync.add_argument("--region", help="Cloud region.")
+    p_sync.add_argument("--provider", choices=["aws", "gcp"], help="Target cloud (default: inferred from dest or config).")
     p_sync.set_defaults(func=cmd_sync)
 
     return parser
@@ -224,13 +305,33 @@ def _ensure_default_dockerignore(context: str) -> None:
 
 
 def cmd_sync(args: argparse.Namespace) -> None:
-    # Ensure bucket exists
     dest = args.dest
-    if dest.startswith("s3://"):
-        bucket = dest.split("/")[2]
-        s3_utils.ensure_bucket(bucket, region=args.region)
-    s3_utils.sync_local_to_s3(Path(args.src), args.dest, region=args.region)
-    print(f"Synced {args.src} -> {args.dest}")
+    provider = cfg.resolve_provider({"provider": args.provider})
+
+    if dest.startswith("gs://") or provider == "gcp":
+        if not dest.startswith("gs://"):
+            print("GCP sync requires gs:// destination", file=sys.stderr)
+            sys.exit(1)
+        parts = dest.split("/", 3)
+        if len(parts) < 3 or not parts[2]:
+            print("Invalid GCS URI; expected gs://bucket/prefix", file=sys.stderr)
+            sys.exit(1)
+        bucket = parts[2]
+        gcp_storage.ensure_bucket(bucket, region=args.region)
+        gcp_storage.sync_local_to_gcs(Path(args.src), dest)
+        print(f"Synced {args.src} -> {dest}")
+        return
+
+    # AWS path
+    if not dest.startswith("s3://"):
+        print("Destination must start with s3:// for AWS sync", file=sys.stderr)
+        sys.exit(1)
+    from jobber import s3_utils
+
+    bucket = dest.split("/")[2]
+    s3_utils.ensure_bucket(bucket, region=args.region)
+    s3_utils.sync_local_to_s3(Path(args.src), dest, region=args.region)
+    print(f"Synced {args.src} -> {dest}")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -240,6 +341,10 @@ def main(argv: list[str] | None = None) -> None:
     if getattr(args, "config", None):
         conf = cfg.load_config(args.config)
         defaults = conf.get(args.command, {})
+        # allow top-level provider to flow into command defaults
+        if "provider" not in defaults and "provider" in conf:
+            defaults = dict(defaults)
+            defaults["provider"] = conf["provider"]
         # Merge defaults only for keys present in args
         args_dict = vars(args)
         merged = cfg.merge_defaults(args_dict, defaults)
