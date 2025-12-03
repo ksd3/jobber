@@ -1,0 +1,31 @@
+# Example AWS config for Jobber (build/push/submit on SageMaker).
+provider: aws
+
+build:
+  image: my-training-image            # Local image name
+  tag: latest                         # Image tag
+  template: gpu-cu121                 # Dockerfile template (see jobber/templates)
+  context: .                          # Build context (project root)
+
+push:
+  image: my-training-image            # MUST match build.image
+  repo: my-training-repo              # ECR repository name (auto-created)
+  tag: latest                         # MUST match build.tag
+  region: us-east-1                   # AWS region
+
+submit:
+  image-uri: 123456789012.dkr.ecr.us-east-1.amazonaws.com/my-training-repo:latest  # repo/tag from push
+  role-arn: arn:aws:iam::123456789012:role/SageMakerExecutionRole                  # execution role
+  bucket: my-unique-bucket             # S3 bucket for data/outputs
+  prefix: my-prefix                    # S3 prefix (data under prefix/data, outputs under prefix/outputs)
+  region: us-east-1                    # MUST match image URI region
+  entry-point: train.py                # Script inside source_dir
+  source-dir: code-bundle              # Local dir to upload as source
+  instance-type: ml.p4d.24xlarge       # Training instance
+  instance-count: 1
+  use-spot: false                      # Set true to use managed spot
+  max-wait-seconds: 3600               # For spot: bounds spot wait/runtime (optional)
+  params:
+    epochs: "5"
+    batch-size: "64"
+    lr: "0.001"

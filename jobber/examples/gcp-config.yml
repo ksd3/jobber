@@ -1,0 +1,32 @@
+# Example GCP config for Jobber (build/push/submit on Vertex AI).
+provider: gcp
+
+build:
+  image: my-training-image               # Local image name
+  tag: latest                            # Image tag
+  template: gpu-cu128                    # Dockerfile template (copies context; ensure train.py present)
+  context: code-bundle                   # Build context containing train.py/requirements.txt
+
+push:
+  image: my-training-image               # MUST match build.image
+  tag: latest                            # MUST match build.tag
+  project: my-gcp-project                # GCP project ID
+  artifact-repo: my-artifact-repo        # Artifact Registry repo (auto-created)
+  region: us-central1                    # Artifact Registry region
+
+submit:
+  image-uri: us-central1-docker.pkg.dev/my-gcp-project/my-artifact-repo/my-training-image:latest
+  project: my-gcp-project
+  gcs-bucket: my-gcs-bucket              # GCS bucket for data/outputs
+  gcs-prefix: my-prefix                  # Prefix (data under prefix/data, outputs under prefix/outputs)
+  region: us-central1
+  entry-point: train.py                  # Script baked into image (or uploaded source_dir if you add that flow)
+  source-dir: code-bundle                # Kept for parity; Vertex runs entry-point from image
+  machine-type: a2-highgpu-2g            # Bundled A100 shape
+  accelerator-type: NVIDIA_TESLA_A100    # Explicit accelerator enum
+  accelerator-count: 2
+  replica-count: 1
+  use-spot: true                         # Enable Vertex spot/preemptible
+  params:
+    my_custom_param1: "this is the output of my first custom parameter"
+    my_custom_param2: "this is the output of my second custom parameter"
