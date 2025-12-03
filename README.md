@@ -2,11 +2,9 @@
 
 Jobber is a helper to:
 - Build Docker images (optionally from templates)
-- Push images to ECR
-- Submit SageMaker training jobs (with config-driven defaults)
-- Sync local data to S3 and seed empty data prefixes
-- Push images to GCP Artifact Registry
-- Sync data to GCS and submit Vertex AI Custom Jobs (provider: gcp)
+- Push images to AWS ECR or GCP Artifact Registry
+- Submit training jobs to AWS SageMaker or GCP Vertex AI (config-driven defaults)
+- Sync local data to S3 or GCS and seed empty data prefixes
 
 ## Contents
 - `configuration.md`: Config file format, merging, hyperparameters.
@@ -65,15 +63,16 @@ jobber submit \
   --region us-central1 \
   --image-uri us-central1-docker.pkg.dev/my-gcp-project/my-repo/my-training:latest \
   --gcs-bucket your-gcs-bucket --gcs-prefix custom-run \
-  --entry-point train.py --source-dir code-bundle \
+  --entry-point train.py \
   --param epochs=5 --param batch-size=64 \
-  --machine-type n1-standard-4
+  --machine-type a2-highgpu-1g \
+  --accelerator-type NVIDIA_TESLA_A100 --accelerator-count 1
 ```
 
 ## Quickstart (with config)
-1) Create a config:
+1) Create a config (prompts; choose aws or gcp):
    ```bash
-   jobber init --path jobber.yml --region us-east-1 --role-arn <role>
+   jobber init --path jobber.yml
    ```
 2) Edit `jobber.yml` (bucket/prefix/image-uri/params/etc.).
 3) Run:
@@ -88,4 +87,5 @@ jobber submit \
 - Upload real data:
   ```bash
   jobber sync-data --src ./mnist_data --dest s3://bucket/prefix/data --region us-east-1
+  jobber sync-data --provider gcp --src ./mnist_data --dest gs://bucket/prefix/data --region us-central1
   ```

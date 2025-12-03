@@ -211,10 +211,12 @@ def test_cli_config_defaults(tmp_path, monkeypatch):
 
 def test_cli_init(tmp_path, monkeypatch):
     outfile = tmp_path / "jobber.yml"
-    argv = ["init", "--path", str(outfile), "--region", "us-west-2", "--role-arn", "arn:aws:iam::123:role/Role"]
+    argv = ["init", "--path", str(outfile), "--region", "us-west-2", "--role-arn", "arn:aws:iam::123:role/Role", "--provider", "aws"]
+    monkeypatch.setattr("builtins.input", lambda prompt='': "")
     cli.main(argv)
     assert outfile.exists()
     content = outfile.read_text()
+    assert "provider: aws" in content
     assert "build:" in content
     assert "push:" in content
     assert "submit:" in content
@@ -371,6 +373,18 @@ def test_cmd_submit_gcp(monkeypatch):
     assert recorded["bucket"] == "b"
     assert recorded["prefix"] == "p"
     assert recorded["args"]["epochs"] == "1"
+
+
+def test_cli_init_gcp(tmp_path, monkeypatch):
+    outfile = tmp_path / "jobber.yml"
+    argv = ["init", "--path", str(outfile), "--region", "us-central1", "--provider", "gcp"]
+    monkeypatch.setattr("builtins.input", lambda prompt='': "")
+    cli.main(argv)
+    assert outfile.exists()
+    content = outfile.read_text()
+    assert "provider: gcp" in content
+    assert "project:" in content
+    assert "gcs-bucket" in content
 
 
 def test_cmd_submit_gcp_missing_deps(monkeypatch, capsys):

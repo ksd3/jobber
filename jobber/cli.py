@@ -148,32 +148,130 @@ def cmd_submit(args: argparse.Namespace) -> None:
 
 
 def cmd_init(args: argparse.Namespace) -> None:
-    region = args.region or cfg.guess_aws_region() or "us-east-1"
-    sample = {
-        "build": {
-            "image": "my-training",
-            "tag": "latest",
-            "template": "gpu-cu121",
-            "context": ".",
-        },
-        "push": {
-            "image": "my-training",
-            "repo": "my-training",
-            "tag": "latest",
-            "region": region,
-        },
-        "submit": {
-            "image-uri": "ACCOUNT.dkr.ecr.REGION.amazonaws.com/my-training:latest",
-            "role-arn": args.role_arn or "arn:aws:iam::<account-id>:role/SageMakerExecutionRole",
-            "bucket": "your-bucket",
-            "prefix": "jobber-run",
-            "region": region,
-            "entry-point": "train.py",
-            "source-dir": "code-bundle",
-            "instance-type": "ml.m5.xlarge",
-            "instance-count": 1,
-        },
-    }
+    def prompt(msg: str, default: str | None = None) -> str:
+        suffix = f" [{default}]" if default is not None else ""
+        val = input(f"{msg}{suffix}: ").strip()
+        return val or (default if default is not None else "")
+
+    def prompt_int(msg: str, default: int) -> int:
+        val = prompt(msg, str(default))
+        try:
+            return int(val)
+        except ValueError:
+            return default
+
+    def prompt_bool(msg: str, default: bool) -> bool:
+        val = prompt(msg + " (y/n)", "y" if default else "n").lower()
+        return val in {"y", "yes", "true", "1"}
+
+    provider = args.provider or prompt("Provider (aws/gcp)", "")
+    if not provider:
+        print("Provider is required (aws or gcp).", file=sys.stderr)
+        sys.exit(1)
+    if provider == "aws":
+        region = args.region or cfg.guess_aws_region() or "us-east-1"
+        build_image = prompt("Build image name", "my-training")
+        build_tag = prompt("Build tag", "latest")
+        build_template = prompt("Docker template", "gpu-cu121")
+        build_context = prompt("Build context", ".")
+
+        push_repo = prompt("ECR repo name", build_image)
+        push_region = prompt("AWS region", region)
+
+        submit_image_uri = prompt(
+            "Submit image URI",
+            f"ACCOUNT.dkr.ecr.{push_region}.amazonaws.com/{push_repo}:{build_tag}",
+        )
+        role_arn = prompt("SageMaker role ARN", args.role_arn or "arn:aws:iam::<account-id>:role/SageMakerExecutionRole")
+        bucket = prompt("S3 bucket", "your-bucket")
+        prefix = prompt("S3 prefix", "jobber-run")
+        entry_point = prompt("Entry point", "train.py")
+        source_dir = prompt("Source dir", "code-bundle")
+        instance_type = prompt("Instance type", "ml.m5.xlarge")
+        instance_count = prompt_int("Instance count", 1)
+        use_spot = prompt_bool("Use managed spot", False)
+        max_wait = prompt_int("Max wait seconds (0 to skip)", 0)
+        sample = {
+            "provider": "aws",
+            "build": {
+                "image": build_image,
+                "tag": build_tag,
+                "template": build_template,
+                "context": build_context,
+            },
+            "push": {
+                "image": build_image,
+                "repo": push_repo,
+                "tag": build_tag,
+                "region": push_region,
+            },
+            "submit": {
+                "image-uri": submit_image_uri,
+                "role-arn": role_arn,
+                "bucket": bucket,
+                "prefix": prefix,
+                "region": push_region,
+                "entry-point": entry_point,
+                "source-dir": source_dir,
+                "instance-type": instance_type,
+                "instance-count": instance_count,
+                "use-spot": use_spot,
+                "max-wait-seconds": max_wait or None,
+            },
+        }
+    else:
+        region = args.region or "us-central1"
+        build_image = prompt("Build image name", "my-training")
+        build_tag = prompt("Build tag", "latest")
+        build_template = prompt("Docker template", "gpu-cu128")
+        build_context = prompt("Build context", "code-bundle")
+
+        project = prompt("GCP project", "my-gcp-project")
+        artifact_repo = prompt("Artifact Registry repo", "my-artifact-repo")
+        push_region = prompt("Region", region)
+
+        gcs_bucket = prompt("GCS bucket", "my-gcs-bucket")
+        gcs_prefix = prompt("GCS prefix", "jobber-run")
+        entry_point = prompt("Entry point", "train.py")
+        source_dir = prompt("Source dir", "code-bundle")
+        machine_type = prompt("Machine type", "a2-highgpu-1g")
+        accel_type = prompt("Accelerator type", "NVIDIA_TESLA_A100")
+        accel_count = prompt_int("Accelerator count", 1)
+        replica_count = prompt_int("Replica count", 1)
+        use_spot = prompt_bool("Use spot/preemptible", False)
+        image_uri_default = f"{push_region}-docker.pkg.dev/{project}/{artifact_repo}/{build_image}:{build_tag}"
+        image_uri = prompt("Submit image URI", image_uri_default)
+
+        sample = {
+            "provider": "gcp",
+            "build": {
+                "image": build_image,
+                "tag": build_tag,
+                "template": build_template,
+                "context": build_context,
+            },
+            "push": {
+                "image": build_image,
+                "tag": build_tag,
+                "project": project,
+                "artifact-repo": artifact_repo,
+                "region": push_region,
+            },
+            "submit": {
+                "image-uri": image_uri,
+                "project": project,
+                "gcs-bucket": gcs_bucket,
+                "gcs-prefix": gcs_prefix,
+                "region": push_region,
+                "entry-point": entry_point,
+                "source-dir": source_dir,
+                "machine-type": machine_type,
+                "accelerator-type": accel_type,
+                "accelerator-count": accel_count,
+                "replica-count": replica_count,
+                "use-spot": use_spot,
+            },
+        }
     Path(args.path).write_text(yaml.safe_dump(sample, sort_keys=False))
     print(f"Wrote sample config to {args.path}")
 
@@ -184,8 +282,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_init = sub.add_parser("init", help="Create a sample config file.")
     p_init.add_argument("--path", default="jobber.yml", help="Where to write the config (default: jobber.yml).")
-    p_init.add_argument("--region", help="AWS region (defaults from AWS CLI).")
-    p_init.add_argument("--role-arn", help="SageMaker execution role ARN.")
+    p_init.add_argument("--region", help="Cloud region (AWS/GCP).")
+    p_init.add_argument("--role-arn", help="SageMaker execution role ARN (AWS only).")
+    p_init.add_argument("--provider", choices=["aws", "gcp"], default=None, help="Cloud provider for the sample config (prompts if omitted).")
     p_init.set_defaults(func=cmd_init)
 
     p_build = sub.add_parser("build", help="Build a Docker image.")
